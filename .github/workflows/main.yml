@@ -1,0 +1,81 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches:
+      - main
+      
+env:
+  AZURE_RG: base-app
+  AZURE_APP_NAME: my-web-app-deploy
+  AZURE_SQL_SERVER_NAME: my-sql-server-app
+  AZURE_SQL_DATABASE_NAME: my-db
+  AZURE_APP_INSIGHTS_NAME: my-app-insights
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14.x'
+        
+    - name: Install Azure CLI
+      uses: azure/cli@v1
+      with:
+        inlineScript: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          
+    - name: Create Azure SQL server and database
+      uses: azure/sql-action@v1.2
+      with:
+        server-name: ${{ env.SQL_SERVER_NAME }}
+        admin-login: ${{ secrets.SQL_SERVER_ADMIN_LOGIN }}
+        admin-password: ${{ secrets.SQL_SERVER_ADMIN_PASSWORD }}
+        resource-group-name: ${{ env.RESOURCE_GROUP_NAME }}
+        database-name: ${{ env.SQL_DATABASE_NAME }}
+    
+    - name: Create Auto Scaling setting
+      uses: azure/webapps-autoscale@v0.2
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        resource-group: ${{ env.RESOURCE_GROUP_NAME }}
+        min-count: 1
+        max-count: 10
+        metric-name: HttpQueueLength
+        operator: GreaterThan
+        threshold: 100
+        cooldown: PT5M
+    
+    - name: Create Alert rule for Auto Scaling
+      uses: azure/alerts-management-action@v0.2
+      with:
+        action-group-id: ${{ env.ACTION_GROUP_ID }}
+        condition: HttpQueueLength > 100
+        description: 'Auto scale out'
+        enabled: true
+        evaluation-frequency: PT1M
+        name: HttpQueueLengthAlert
+        resource-group-name: ${{ env.RESOURCE_GROUP_NAME }}
+        rule-type: MetricAlert
+        severity: 2
+    
+    - name: Enable App Insights for the Web App
+      uses: azure/webapps-appservice-plan@v0.3
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        resource-group: ${{ env.RESOURCE_GROUP_NAME }}
+        kind: app
+        sku: S1
+        enable-app-insights: true
+        
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        slot-name: production
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: .
