@@ -81,3 +81,4 @@ jobs:
         package: .
 
 #If I could access my Arm from Microsoft Azure...
+#Well... I couldn't access the secrets from azure active directory or azure service principal.
